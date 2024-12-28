@@ -26,7 +26,9 @@ getFilteredDict dict listOfColors =
     let greenPairs = [(ind, letter) | (ind, (letter, color)) <- listOfColors, color == "gr"]
         yellowLetters = [letter | (ind, (letter, color)) <- listOfColors, color == "y"]
         grayLetters = [letter | (ind, (letter, color)) <- listOfColors, color == "g"]
-    in getWordsWithGreenLetters (getWordsWithYellowLetters (getWordsWithGrayLetters dict grayLetters) yellowLetters) greenPairs
+        wordsWithGrayLetters = getWordsWithGrayLetters dict grayLetters
+        wordsWithYellowLetters = getWordsWithYellowLetters wordsWithGrayLetters yellowLetters
+    in getWordsWithGreenLetters wordsWithYellowLetters greenPairs
 
 evaluateGuessHelper listOfColors dict wordLength =
     putStrLn ("Предложената дума е: " ++ head dict)
