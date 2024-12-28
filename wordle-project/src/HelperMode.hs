@@ -2,16 +2,22 @@ module HelperMode where
 
 getInitialDictionary wordLength dict = [ word | word <- dict, length word == wordLength]
 
-getListOfColors (x:xs) listOfColors ind wordLength =
-    if ind == wordLength - 1
-        then return listOfColors
-        else do
-            putStrLn "Напиши комбинацията от букви, която отговаря на съответния цвят: (gr - green, y - yellow, g - gray):"
-            putStr ("Цвят за буква " ++ [x] ++ ": ")
-            color <- getLine
-            if color == "gr"
-                then getListOfColors xs ((ind, (x, color)) : listOfColors) (ind + 1) wordLength
-                else getListOfColors xs ((-1, (x, color)) : listOfColors) (ind + 1) wordLength
+getListOfColors [] listOfColors _ _ = return listOfColors
+getListOfColors (x:xs) listOfColors ind wordLength
+  | length (x:xs) /= wordLength   = do
+    putStr "Думата не е с коректна дължина! Опитай пак: "
+    return []
+  | otherwise = do
+                putStrLn "Напиши комбинацията от букви, която отговаря на съответния цвят: (gr - green, y - yellow, g - gray):"
+                putStr ("Цвят за буква " ++ [x] ++ ": ")
+                color <- getLine
+                if color `elem` ["gr", "y", "g"]
+                    then if color == "gr" 
+                        then getListOfColors xs ((ind, (x, color)) : listOfColors) (ind + 1) wordLength
+                        else getListOfColors xs ((-1, (x, color)) : listOfColors) (ind + 1) wordLength
+                    else do
+                        putStrLn "Невалиден цвят!"
+                        getListOfColors (x:xs) listOfColors ind wordLength
 
 getWordsWithGrayLetters dict [] = dict
 getWordsWithGrayLetters dict grayLetters = [word | word <- dict, all (`notElem` word) grayLetters]
@@ -26,9 +32,11 @@ getFilteredDict dict listOfColors =
     let greenPairs = [(ind, letter) | (ind, (letter, color)) <- listOfColors, color == "gr"]
         yellowLetters = [letter | (ind, (letter, color)) <- listOfColors, color == "y"]
         grayLetters = [letter | (ind, (letter, color)) <- listOfColors, color == "g"]
-        wordsWithGrayLetters = getWordsWithGrayLetters dict grayLetters
-        wordsWithYellowLetters = getWordsWithYellowLetters wordsWithGrayLetters yellowLetters
-    in getWordsWithGreenLetters wordsWithYellowLetters greenPairs
+    in getWordsWithGreenLetters
+        (getWordsWithYellowLetters 
+         (getWordsWithGrayLetters dict grayLetters) 
+        yellowLetters) 
+       greenPairs
 
 evaluateGuessHelper listOfColors dict wordLength =
     putStrLn ("Предложената дума е: " ++ head dict)
