@@ -1,6 +1,6 @@
 module HelperMode where
 
-import IOOperations ( getLengthWords )
+import IOOperations ( getLengthWords, loadDictonary )
 import NormalGame (removeOccuranceFromActualWord)
 import EasyGame ( askForConfirmation )
 import Data.Foldable ( maximumBy )
@@ -16,7 +16,7 @@ getListOfColors :: Num t => [Char] -> [(t, (Char, String))] -> t -> Int -> IO [(
 getListOfColors [] listOfColors _ _ = return listOfColors
 getListOfColors (x:xs) listOfColors ind wordLength
   | length (x:xs) /= wordLength   = do
-    putStr "Думата не е с коректна дължина! Опитай пак: "
+    putStr "\x1b[32mДумата не е с коректна дължина! Опитай пак: \x1b[0m"
     return []
   | otherwise = do
                 putStrLn "Напиши комбинацията от букви, която отговаря на съответния цвят: (gr - green, y - yellow, g - gray):"
@@ -28,7 +28,7 @@ getListOfColors (x:xs) listOfColors ind wordLength
                         then getListOfColors xs ((ind + 1, (x, color)) : listOfColors) (ind + 1) (wordLength - 1)
                         else getListOfColors xs ((-1, (x, color)) : listOfColors) (ind + 1) (wordLength - 1)
                     else do
-                        putStrLn "Невалиден цвят!"
+                        putStrLn "\x1b[32mНевалиден цвят!\x1b[0m"
                         getListOfColors (x:xs) listOfColors ind wordLength
 
 getWordsWithGrayLetters :: (Foldable t, Eq a) => [t a] -> [a] -> [t a]
@@ -45,6 +45,7 @@ getWordsWithGreenLetters dict greenPairs = [word | word <- dict, all (\(ind, let
 
 -- words that do not contraverse the previous answers
 -- if the returned list is empty, then the player has lied
+getFilteredDict :: Eq a => [[a]] -> [(Int, (a, String))] -> [[a]]
 getFilteredDict dict listOfColors =
     let greenPairs = [(ind, letter) | (ind, (letter, color)) <- listOfColors, color == "gr"]
         yellowLetters = [letter | (_, (letter, color)) <- listOfColors, color == "y"]
@@ -56,6 +57,7 @@ getFilteredDict dict listOfColors =
             yellowLetters)
         greenPairs
 
+removeNeededGrayLetters :: (Foldable t, Eq a1) => [a1] -> t a1 -> [(a2, a1)] -> [a1] -> [a1]
 removeNeededGrayLetters [] _ _ newGrayLetters = newGrayLetters
 removeNeededGrayLetters (x:restGray) yellowLetters greenPairs newGrayList =
     let greenLetters = [ letter | (_, letter) <- greenPairs ]
@@ -63,10 +65,12 @@ removeNeededGrayLetters (x:restGray) yellowLetters greenPairs newGrayList =
         then removeNeededGrayLetters restGray yellowLetters greenPairs newGrayList
         else removeNeededGrayLetters restGray yellowLetters greenPairs (x:newGrayList))
 
+getYellowLettersFromList :: (Eq a1, Num a2) => [a1] -> [(a1, a1)] -> [(a2, (a1, String))] -> [(a2, (a1, String))]
 getYellowLettersFromList _ [] lettersList = lettersList
 getYellowLettersFromList word ((f, s) : xs) lettersList = if f /= s && f `elem` word
     then getYellowLettersFromList (removeOccuranceFromActualWord word f) xs ((-1, (f, "y")) : lettersList)
     else  getYellowLettersFromList word xs lettersList
+
 -- return list of colors like this [(ind / -1, (letter, color))]
 getColorMatching :: (Enum a1, Eq a2, Num a1) => [a2] -> [a2] -> [(a1, (a2, String))]
 getColorMatching offerWord secretWord =
@@ -75,7 +79,9 @@ getColorMatching offerWord secretWord =
         yellowLetters = getYellowLettersFromList secretWord pairs []
         grayLetters = [(-1, (f, "g"))| (f, s) <- pairs, f /= s, f `notElem` secretWord]
     in greenLetters ++ yellowLetters ++ grayLetters
+
 -- sums the removed words for a current word
+sumCoefficientForCurrentWord :: Eq a2 => [a2] -> [[a2]] -> Int
 sumCoefficientForCurrentWord potentialOfferWord dict =
     let calculateRemovedWords secretWord =
             let colorMatchingList = getColorMatching potentialOfferWord secretWord
@@ -83,7 +89,8 @@ sumCoefficientForCurrentWord potentialOfferWord dict =
             in length dict - length filteredDict
     in sum (map calculateRemovedWords dict)
 
-getBestWord :: (Show a2, Eq a2) => [[a2]] -> IO [a2]
+
+getBestWord :: Eq a2 => [[a2]] -> IO [a2]
 getBestWord dict =
     let listOfPairsWordAndCoefficient = [(word, sumCoefficientForCurrentWord word dict) | word <- dict]
     in if null listOfPairsWordAndCoefficient
@@ -97,19 +104,21 @@ getBestWord dict =
 getWordFromPlayer :: Int -> IO String
 getWordFromPlayer wordLength = do
     putStr "Въведете дума по Ваш избор: "
+    hFlush stdout
     word <- getLine
     if length word /= wordLength
         then do
-            putStrLn ("Думата трябва да е с дължина" ++ show wordLength)
+            putStrLn ("\x1b[31mДумата трябва да е с дължина " ++ show wordLength ++ "!\x1b[0m")
             getWordFromPlayer wordLength
         else
             return word
+
 evaluateGuessHelper :: [[Char]] -> Int -> IO ()
 evaluateGuessHelper dict wordLength = do
     bestWord <- getBestWord dict
     -- use pattern matching -> if the dict is empty, then head dict will throw an error!
     putStrLn ("Предложената дума е: " ++ bestWord)
-    confirmationAnswer <- askForConfirmation
+    confirmationAnswer <- askForConfirmation bestWord
     if confirmationAnswer
         then do
             listOfColors <- getListOfColors bestWord [] 0 (length bestWord)
@@ -117,18 +126,22 @@ evaluateGuessHelper dict wordLength = do
                 newDict = filter (\word -> word /= bestWord) dict
             if length listOfGreenLetters == wordLength
                 then
-                    putStrLn ("Браво, позна думата: " ++ bestWord)
+                    putStrLn ("\x1b[32mБраво, позна думата: " ++ bestWord ++ "\x1b[0m")
                 else do
                     evaluateGuessHelper (getFilteredDict newDict listOfColors) wordLength
         else do
             word <- getWordFromPlayer wordLength
             listOfColors <- getListOfColors word [] 0 (length word)
             let listOfGreenLetters = [ letter | (_, (letter, color)) <- listOfColors, color == "gr"]
-                newDict = filter (\word -> word /= bestWord) dict
+                newDict = filter (/= bestWord) dict
             if length listOfGreenLetters == wordLength
                 then
-                    putStrLn ("Браво, позна думата: " ++ word)
+                    putStrLn ("\x1b[32mБраво, позна думата: " ++ word ++ "\x1b[0m")
                 else do
                     evaluateGuessHelper (getFilteredDict newDict listOfColors) wordLength
-startGameHelperMode dict = do
-    evaluateGuessHelper dict (length (head dict))
+
+startGameHelperMode :: FilePath -> IO ()
+startGameHelperMode path = do
+    wordLength <- getLengthWords
+    dict <- loadDictonary path wordLength
+    evaluateGuessHelper dict wordLength
