@@ -9,14 +9,15 @@ loadDictonary _ 0 = do
     exitSuccess
 
 loadDictonary path lengthWords = do  
-    words <- readFile path
-    let filteredWords = filter (\word -> length word == lengthWords) (lines words)
+    dictonaryWords <- readFile path
+    let filteredWords = filter (\word -> length word == lengthWords) (lines dictonaryWords)
     if null filteredWords
         then do
-            putStrLn "Думите трябва да са с дължина от 3 до 9."
+            putStrLn "\x1b[31mДумите трябва да са с дължина от 3 до 9.\x1b[0m"
             newWordsLength <- getLengthWords
             loadDictonary path newWordsLength
-        else return filteredWords
+        else
+            return filteredWords
 
 getLengthWords :: IO Int
 getLengthWords = do
@@ -27,5 +28,5 @@ getLengthWords = do
     if all isDigit lengthStr && not (null lengthStr)
         then return (read lengthStr :: Int)
         else do 
-            putStrLn "Моля, въведете валидно число!"
+            putStrLn "\x1b[31mМоля, въведете валидно число!\x1b[0m"
             getLengthWords
