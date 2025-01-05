@@ -1,17 +1,17 @@
-module ExpertGame (startGameExpertMode) where
+module ExpertGame where
 
 import NormalGame
-    ( colorTheLetters, removeOccuranceFromActualWord, changeColor )
+    ( colorTheLetters, changeColor )
 import System.IO ( hFlush, stdout )
 import EasyGame
     ( GameState(usedGrayLetters, usedGreenLetters, usedYellowLetters),
       emptyGameState,
       updateGameState )
+import Data.List (group, sort)
+import System.Exit (exitSuccess)
 
-startGameExpertMode :: String -> IO ()
-startGameExpertMode actualWord = evaluateGuessExpertGame actualWord (length actualWord) emptyGameState False
+startGameExpertMode actualWord = evaluateGuessExpertGame actualWord (length actualWord) emptyGameState 1
 
-evaluateGuessExpertGame :: String -> Int -> GameState -> Bool -> IO ()
 evaluateGuessExpertGame actualWord wordLength gameState usedLie = do
     putStr "Въведи опит за познаване на думата: "
     hFlush stdout
@@ -24,41 +24,62 @@ evaluateGuessExpertGame actualWord wordLength gameState usedLie = do
             else if guess == actualWord
                 then do
                     putStrLn ("\x1b[32mБраво! Позна думата " ++ actualWord ++ "!\x1b[0m")
+                    exitSuccess
                 else do
                     -- shouldLie <- randomRIO (0, 1 :: Int)
-                    let shouldLie = True
-                    putStrLn (colorTheLettersExpertMode guess actualWord shouldLie gameState usedLie)
-                    evaluateGuessExpertGame actualWord wordLength (updateGameState guess actualWord gameState) (if usedLie then True else shouldLie)
+                    putStrLn (colorTheLettersExpertMode guess actualWord gameState usedLie)
+                    evaluateGuessExpertGame actualWord wordLength (if usedLie /= 2 then updateGameState guess actualWord gameState else gameState) (usedLie + 1)
 
 
-colorTheLettersExpertMode :: [Char] -> [Char] -> Bool -> GameState -> Bool -> [Char]
-colorTheLettersExpertMode guess actualWord isLie gameState usedLie =
+colorTheLettersExpertMode guess actualWord gameState usedLie =
     -- To be careful with the conditions in the if
-    if usedLie || not isLie
+    if usedLie /= 2
         then colorTheLetters guess actualWord
-        else colorTheLettersFalsly guess actualWord gameState
+        else colorTheLettersFalsly guess gameState (makeMapForLetterAndCountInWord actualWord) [] 1 [ind | (ind, _, "gr") <- usedGreenLetters gameState]
 
-colorTheLettersFalsly :: [Char] -> [Char] -> GameState -> [Char]
-colorTheLettersFalsly guess actualWord gameState = helper guess actualWord "" actualWord where
-    helper [] [] result _ = result -- two of the lists are empty -> return result
-    helper [] _ result _ = result
-    helper _ [] result _ = result
-    helper (x:xs) (y:ys) result contains
-        | x == y                = helper xs ys (result ++ colorForGreen x gameState) (removeOccuranceFromActualWord contains x)
-        | x `elem` contains     = helper xs ys (result ++ colorForYellow x gameState) (removeOccuranceFromActualWord contains x)
-        | otherwise             = helper xs ys (result ++ colorForGray x gameState) contains
+-- pravq list ot vida [(letter, count)] za tainata duma
+makeMapForLetterAndCountInWord secretWord =
+    let groupedLetters = group (sort secretWord)
+    in map (\group -> (head group, length group)) groupedLetters
 
-colorForGreen :: Char -> GameState -> [Char]
-colorForGreen letter gameState
-    | letter `elem` map snd (usedGreenLetters gameState) = changeColor "green" letter
-    | otherwise                                          = changeColor "yellow" letter
+-- filters e ot vida [(ind, letter, color)]
+-- tazi funkciq vrushta offer dumata bez zelenite bukvi na poziciite, koito sa otkriti v dosegashnite filtri
+removeAllGreenLettersFromOfferWord [] _ newWord _ = newWord
+removeAllGreenLettersFromOfferWord (x:restOfferWord) gameState newWord ind =
+    let listOfGreenLetters = [(index, letter) | (index, letter, "gr") <- usedGreenLetters gameState]
+    in if x `elem` map snd listOfGreenLetters
+        then
+            case filter (\(index, letter) -> letter == x && index == ind) listOfGreenLetters of
+                [] -> removeAllGreenLettersFromOfferWord restOfferWord gameState (newWord ++ [x]) (ind + 1)
+                _  -> removeAllGreenLettersFromOfferWord restOfferWord gameState newWord (ind + 1)
+        else removeAllGreenLettersFromOfferWord restOfferWord gameState (newWord ++ [x]) (ind + 1)
 
-colorForYellow :: Char -> GameState -> [Char]
-colorForYellow letter gameState
-    | letter `elem` usedYellowLetters gameState = changeColor "yellow" letter
-    | otherwise                                 = changeColor "gray" letter
+-- namalqm broikata na sreshtaniqta na bukvite v secretDumata
+reduceCountOfLetterInMap _ [] = []
+reduceCountOfLetterInMap targetLetter ((letter, count):restMap)
+    | letter == targetLetter && count > 0   = (letter, count - 1) : restMap
+    | otherwise                             = (letter, count) : reduceCountOfLetterInMap targetLetter restMap
 
-colorForGray :: Char -> GameState -> [Char]
-colorForGray letter gameState
-    | letter `elem` usedGrayLetters gameState = changeColor "gray" letter
-    | otherwise                               = changeColor "yellow" letter
+
+-- vzemam broikata na bukvata ot map-a
+getCountOfCurrentLetter _ [] = 0
+getCountOfCurrentLetter targetLetter ((letter, count):restMapCountForSecretWord)
+    | targetLetter == letter    = count
+    | otherwise                 = getCountOfCurrentLetter targetLetter restMapCountForSecretWord
+
+colorTheLettersFalsly [] _ _ coloredWord _ _ = coloredWord
+colorTheLettersFalsly (x:restOfferWord) gameState mapCountForSecretWord coloredWord currentInd listOfIndexesWithGreenLetters
+  | not (null [(currentInd, x, "gr") | (ind, letter, "gr") <- usedGreenLetters gameState, ind == currentInd, letter == x])      = colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "gr" x) (currentInd + 1) listOfIndexesWithGreenLetters
+  | getCountOfCurrentLetter x mapCountForSecretWord == 0    = if x `elem` [ letter | (ind, letter, "g") <- usedGrayLetters gameState]
+                then colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "g" x) (currentInd + 1) listOfIndexesWithGreenLetters
+                else colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "y" x) (currentInd + 1) listOfIndexesWithGreenLetters
+  | otherwise = let listOfYellowFilters = [ (ind, letter) | (ind, letter, "y") <- usedYellowLetters gameState]
+                in if x `elem` map snd listOfYellowFilters
+                    then
+                        if currentInd `elem` [ind | (ind, x) <- listOfYellowFilters]
+                            then colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "y" x) (currentInd + 1) listOfIndexesWithGreenLetters
+                            else colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "gr" x) (currentInd + 1) listOfIndexesWithGreenLetters
+                    else
+                        if x `elem` [ letter | (ind, letter, "g") <- usedGrayLetters gameState]
+                            then colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "g" x) (currentInd + 1) listOfIndexesWithGreenLetters
+                            else colorTheLettersFalsly restOfferWord gameState (reduceCountOfLetterInMap x mapCountForSecretWord) (coloredWord ++ changeColor "y" x) (currentInd + 1) listOfIndexesWithGreenLetters
