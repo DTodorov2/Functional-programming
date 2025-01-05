@@ -1,5 +1,8 @@
-module NormalGame (startGame, colorTheLetters) where
+module NormalGame ( startGame, evaluateGuess, changeColor, colorTheLetters ) where
 import System.IO ( hFlush, stdout )
+import HelperMode ( getColorMatching )
+import Data.List (sortBy)
+import Data.Ord (comparing)
 
 -- да направя ли да може да се exit-ва от играта, ако напише exit
 startGame :: String -> IO ()
@@ -22,29 +25,32 @@ evaluateGuess actualWord wordLength = do
             evaluateGuess actualWord wordLength
             -- TO DO: To clear the screen after a difference in the length
         else do
-            putStrLn (colorTheLetters guess actualWord)
-            return guess
+            return (colorTheLetters guess actualWord)
+            
 
+colorTheLetters guess actualWord = 
+    let colorPattern = sortBy (comparing  (\(i, _, _) -> i)) (getColorMatching guess actualWord)
+    in concatMap (\(_, letter, color) -> changeColor color letter) colorPattern
 
 -- правя низът в един цял стринг "\x1b[32m[letter]\x1b[0m\x1b[32m"[letter]\x1b[0m\x1b[32m[letter]\x1b[0m"
 -- от този тип и в горната функция го печатам
+-- colorTheLetters :: [Char] -> [Char] -> [Char]
+-- colorTheLetters guess actualWord = helper guess actualWord "" actualWord where
+--     helper [] [] result _ = result -- two of the lists are empty -> return result
+--     helper [] _ result _ = result
+--     helper _ [] result _ = result
+--     helper (x:xs) (y:ys) result contains
+--         | x == y        = helper xs ys (result ++ changeColor "green" x) (removeOccuranceFromActualWord contains x)
+--         | x `elem` contains   = helper xs ys (result ++ changeColor "yellow" x) (removeOccuranceFromActualWord contains x)
+--         | otherwise     = helper xs ys (result ++ changeColor "gray" x) contains
 
-colorTheLetters guess actualWord = helper guess actualWord "" actualWord where
-    helper [] [] result _ = result -- two of the lists are empty -> return result
-    helper [] _ result _ = result
-    helper _ [] result _ = result
-    helper (x:xs) (y:ys) result contains
-        | x == y        = helper xs ys (result ++ changeColor "green" x) (removeOccuranceFromActualWord contains x)
-        | x `elem` contains   = helper xs ys (result ++ changeColor "yellow" x) (removeOccuranceFromActualWord contains x)
-        | otherwise     = helper xs ys (result ++ changeColor "gray" x) contains
-
-removeOccuranceFromActualWord :: Eq t => [t] -> t -> [t]
-removeOccuranceFromActualWord [] _ = []
-removeOccuranceFromActualWord (x:xs) letter = if x == letter then xs else x : removeOccuranceFromActualWord xs letter
+-- removeOccuranceFromActualWord :: Eq t => [t] -> t -> [t]
+-- removeOccuranceFromActualWord [] _ = []
+-- removeOccuranceFromActualWord (x:xs) letter = if x == letter then xs else x : removeOccuranceFromActualWord xs letter
 
 -- to say that it is from chatGpt
 changeColor :: String -> Char -> [Char]
 changeColor wantedColor letter
-    | wantedColor == "green"     = "\x1b[32m" ++ [letter] ++ "\x1b[0m"
-    | wantedColor == "yellow"    = "\x1b[33m" ++ [letter] ++ "\x1b[0m"
+    | wantedColor == "gr"     = "\x1b[32m" ++ [letter] ++ "\x1b[0m"
+    | wantedColor == "y"    = "\x1b[33m" ++ [letter] ++ "\x1b[0m"
     | otherwise                  = "\x1b[90m" ++ [letter] ++ "\x1b[0m"
