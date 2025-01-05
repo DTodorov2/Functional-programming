@@ -1,11 +1,14 @@
-module EasyGame (startGameEasyMode) where
+module EasyGame where
 
 import System.IO (hFlush, stdout)
 import NormalGame (colorTheLetters)
+import HelperMode ( getColorMatching, getWordsWithGrayLetters )
+import Data.List (nub)
+import System.Exit (exitSuccess)
 
-type GrayLetters = [Char]
-type YellowLetters = [Char]
-type GreenLetters = [(Int, Char)]
+type GrayLetters = [(Int, Char, [Char])]
+type YellowLetters = [(Int, Char, [Char])]
+type GreenLetters = [(Int, Char, [Char])]
 
 data GameState = GameState {usedGrayLetters :: GrayLetters, usedYellowLetters :: YellowLetters, usedGreenLetters :: GreenLetters}
 
@@ -21,65 +24,32 @@ checkGuessIsNotInDictionary guess dictionary =
     else
         return False
 
-newGrayLettersList :: (Eq a, Foldable t) => t a -> [(a, a)] -> [a]
-newGrayLettersList _ [] = []
-newGrayLettersList actualWord newPairsLetters = [f | (f, s) <- newPairsLetters, f /= s, f `notElem` actualWord]
+newGrayLettersList :: [(a, b, String)] -> [(a, b, String)]
+newGrayLettersList colorPattern = [(ind, letter, "g") | (ind, letter, "g") <- colorPattern]
 
-newYellowLettersList :: (Eq a, Foldable t) => t a -> [(a, a)] -> [a]
-newYellowLettersList _ [] = []
-newYellowLettersList actualWord newPairsLetters = [f | (f, s) <- newPairsLetters, f /= s, f `elem` actualWord]
+newYellowLettersList :: [(a, b, String)] -> [(a, b, String)]
+newYellowLettersList colorPattern = [(ind, letter, "y") | (ind, letter, "y") <- colorPattern]
 
-newGreenLettersList :: (Num a, Enum a, Eq b) => [(b, b)] -> [(a, b)]
-newGreenLettersList [] = []
-newGreenLettersList newPairsLetters = [(i, f) | (i, (f, s)) <- zip [0..] newPairsLetters,  f == s]
+newGreenLettersList :: [(a, b, String)] -> [(a, b, String)]
+newGreenLettersList colorPattern =  [(ind, letter, "gr") | (ind, letter, "gr") <- colorPattern]
 
 updateGameState :: [Char] -> [Char] -> GameState -> GameState
 updateGameState guess actualWord gameState =
-    let newPairsLetters = zip guess actualWord
+    let colorMatchingPattern = getColorMatching guess actualWord
     in GameState {
-        usedGrayLetters = usedGrayLetters gameState ++ newGrayLettersList actualWord newPairsLetters,
-        usedYellowLetters = usedYellowLetters gameState ++ newYellowLettersList actualWord newPairsLetters,
-        usedGreenLetters = usedGreenLetters gameState ++ newGreenLettersList newPairsLetters
+        usedGrayLetters = nub (usedGrayLetters gameState ++ newGrayLettersList colorMatchingPattern),
+        usedYellowLetters = nub (usedYellowLetters gameState ++ newYellowLettersList colorMatchingPattern),
+        usedGreenLetters = nub (usedGreenLetters gameState ++ newGreenLettersList colorMatchingPattern)
         }
 
-checkGuessForUsingUsedGrayLetters :: (Foldable t, Eq a) => t a -> [a] -> IO Bool
-checkGuessForUsingUsedGrayLetters _ [] = return False
-checkGuessForUsingUsedGrayLetters grayLetters (x:xs) = if x `elem` grayLetters
-    then do
-        putStrLn "\x1b[31mИзползваш използвана сива буква!\x1b[0m"
-        return True
-    else
-        checkGuessForUsingUsedGrayLetters grayLetters xs
-
-
-checkGuessIsGreenLetterMisplaced :: [(Int, Char)] -> [Char] -> Int -> IO Bool
-checkGuessIsGreenLetterMisplaced _ [] _ = return False
-checkGuessIsGreenLetterMisplaced greenLetters (x:xs) index =
-    let
-        isThereGuessedLetter = filter (\(f, s) -> f == index && s /= x) greenLetters
-    in if not (null isThereGuessedLetter)
-        then do
-            putStrLn ("\x1b[31mИзползваш неправилна буква на позиция " ++ show (index + 1) ++ "\x1b[0m")
-            return True
-        else checkGuessIsGreenLetterMisplaced greenLetters xs (index + 1)
-
-checkMissedYellowLetters :: Eq a => [a] -> [a] -> IO Bool
-checkMissedYellowLetters [] [] = return False
-checkMissedYellowLetters _ [] = do
-        putStrLn "\x1b[31mНе си използвал всички жълти букви!\x1b[0m"
-        return True
-
-checkMissedYellowLetters yellowLetters (x:xs) =
-    if x `elem` yellowLetters
-        then checkMissedYellowLetters (filter (\l -> l /= x) yellowLetters) xs
-        else checkMissedYellowLetters yellowLetters xs
-
+-- TO DO: to add dict to be filled only with words with length equal to the length of actualWord
 startGameEasyMode :: Foldable t => String -> t [Char] -> IO ()
 startGameEasyMode actualWord = evaluateGuessEasyMode actualWord (length actualWord) emptyGameState
 
-askForConfirmation :: IO Bool
-askForConfirmation = do
-    putStrLn "Искаш ли да продължиш? - y/n"
+
+askForConfirmation :: [Char] -> IO Bool
+askForConfirmation word = do
+    putStrLn ("Искаш ли да продължиш с дума '" ++ word ++ "' - y/n?")
     answer <- getLine
     if answer == "y"
         then return True 
@@ -87,42 +57,46 @@ askForConfirmation = do
             then return False 
             else do
                 putStrLn "\x1b[31mОтговорът трябва да е y или n\x1b[0m"
-                askForConfirmation
+                askForConfirmation word
 
 confirmWordUsage :: Foldable t => [Char] -> GameState -> t [Char] -> IO Bool
 confirmWordUsage guess gameState dict = do
     notInDict <- checkGuessIsNotInDictionary guess dict 
     if notInDict
-        then askForConfirmation 
-        else do 
-            usingUsedGrayLetters <- checkGuessForUsingUsedGrayLetters (usedGrayLetters gameState) guess
-            if usingUsedGrayLetters
-                then askForConfirmation
-                else do 
-                    misplacedGreenLetter <- checkGuessIsGreenLetterMisplaced (usedGreenLetters gameState) guess 0
-                    if misplacedGreenLetter
-                        then askForConfirmation
-                        else do 
-                            missedYellowLetters <- checkMissedYellowLetters (usedYellowLetters gameState) guess
-                            if missedYellowLetters
-                                then askForConfirmation
-                                else return True
+        then 
+            askForConfirmation guess
+        else do
+            if null (getWordsWithGrayLetters [guess] (usedGreenLetters gameState ++ usedYellowLetters gameState ++ usedGrayLetters gameState))
+                then do
+                    print "printq izpolzvani sivi bukvi"
+                    print (usedGrayLetters gameState)
+                    print "printq izpolzvani zeleni bukvi"
+                    print (usedGreenLetters gameState)
+                    print "printq izpolzvani julti bukvi"
+                    print (usedYellowLetters gameState)
+                    putStrLn "\x1b[31mДаваш дума, която противоречи с предишни отговори!\x1b[0m"
+                    askForConfirmation guess
+                else return True
 
 evaluateGuessEasyMode :: Foldable t => String -> Int -> GameState -> t [Char] -> IO ()
 evaluateGuessEasyMode actualWord wordLength gameState dict = do
     putStr "Моля, въведете опит за познаване на думата: "
     hFlush stdout
     guess <- getLine
-    continue <- confirmWordUsage guess gameState dict
-    if not continue
-        then evaluateGuessEasyMode actualWord wordLength gameState dict
-        else if length guess /= wordLength
-            then do
-                putStrLn ("\x1b[31mДумата трябва да бъде с дължина " ++ show wordLength ++ "\x1b[0m")
-                evaluateGuessEasyMode actualWord wordLength gameState dict
-            else if guess == actualWord
-                then do
-                    putStrLn ("\x1b[32mБраво! Позна думата " ++ actualWord ++ "!\x1b[0m")
-                else do
-                    putStrLn (colorTheLetters guess actualWord)
-                    evaluateGuessEasyMode actualWord wordLength (updateGameState guess actualWord gameState) dict
+    print guess
+    print actualWord
+    if guess == actualWord
+        then do
+            putStrLn ("\x1b[32mБраво! Позна думата " ++ actualWord ++ "!\x1b[0m")
+            exitSuccess
+        else do
+            continue <- confirmWordUsage guess gameState dict
+            if not continue
+                then evaluateGuessEasyMode actualWord wordLength gameState dict
+                else if length guess /= wordLength
+                    then do
+                        putStrLn ("\x1b[31mДумата трябва да бъде с дължина " ++ show wordLength ++ "\x1b[0m")
+                        evaluateGuessEasyMode actualWord wordLength gameState dict
+                    else do
+                        putStrLn (colorTheLetters guess actualWord)
+                        evaluateGuessEasyMode actualWord wordLength (updateGameState guess actualWord gameState) dict
