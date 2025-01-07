@@ -1,4 +1,4 @@
-module HelperMode ( getValidWords, startGameHelperMode ) where
+module HelperMode ( getValidWords, startGameHelperMode, hasContradictionWithFilters ) where
 
 import IOOperations ( getLengthWords, loadDictionary )
 import Data.Foldable ( maximumBy )
@@ -6,8 +6,10 @@ import Data.Ord ( comparing )
 import System.IO ( hFlush, stdout )
 import System.Exit ( exitSuccess )
 import Color ( Color(..), parseStringToColor )
-import ColorUtils ( getColorMatching, removeGreenLetters, redColor, whiteColor, greenColor)
+import ColorUtils ( getColorMatching, removeGreenLetters, redColor, whiteColor, greenColor, removeAllYellowLetters)
 import ListUtils (isValidIndex, removeLetterFromList, indexToStartCountingFrom, emptyList)
+import GameState (emptyGameState, GameState (..))
+import Data.List (intersect)
 
 -- in the beggining the listOfColors is [] and the ind is 0
 -- returns the listOfColors [(ind / -1, (letter, color))], for example, for the current word
@@ -33,7 +35,7 @@ getWordsMatchingGreenLetters  :: Eq a => [[a]] -> [(Int, a, Color)] -> [[a]]
 getWordsMatchingGreenLetters  dict colorMatchingList =
     let greenLetters = [(ind, letter) | (ind, letter, Green) <- colorMatchingList]
     in filter (matchesGreenLetters greenLetters) dict
-    where matchesGreenLetters conditionList word = 
+    where matchesGreenLetters conditionList word =
             all (\(ind, ch) -> isValidIndex ind word && (word !! (ind - 1) == ch)) conditionList
 
 matchesYellowLettersFilters :: (Foldable t, Eq a1) => t (Int, a1) -> (a2, [a1]) -> Bool
@@ -68,11 +70,11 @@ getValidWords initialDict colorMatchingList =
         grayLetters = [ (ind, letter) | (ind, letter, Gray) <- colorMatchingList]
         yellowLetters = [ letter | (_, letter, Yellow) <- colorMatchingList]
         indexesOfGreenLetters = [ ind | (ind, _, Green) <- colorMatchingList]
-        wordsWithoutGreenLetters = map (\(ind, word) -> 
-            (ind, removeGreenLetters indexesOfGreenLetters word indexToStartCountingFrom emptyList)) 
+        wordsWithoutGreenLetters = map (\(ind, word) ->
+            (ind, removeGreenLetters indexesOfGreenLetters word indexToStartCountingFrom emptyList))
             dictOfWordsWithYellowAndGreenLetters
-        wordsWithoutYellowLetters = map (\(ind, word) -> 
-            (ind, removeAllYellowLetters yellowLetters emptyList word)) 
+        wordsWithoutYellowLetters = map (\(ind, word) ->
+            (ind, removeAllYellowLetters yellowLetters emptyList word))
             wordsWithoutGreenLetters
         wordsWithoutGrayLetters = filter (doesntMatchGrayLetters grayLetters) wordsWithoutYellowLetters
         indexesOfWordsWithoutGrayLetters = map fst wordsWithoutGrayLetters
@@ -83,14 +85,6 @@ getFilteredDict :: Eq b => [[b]] -> [(Int, b, Color)] -> [[b]]
 getFilteredDict [] _ = []
 getFilteredDict _ [] = []
 getFilteredDict dict colorMatchingList = [ word | (_, word) <- getValidWords dict colorMatchingList]
-
-removeAllYellowLetters :: Eq a => [a] -> [a] -> [a] -> [a]
-removeAllYellowLetters [] newWord restWord = newWord ++ restWord
-removeAllYellowLetters _ newWord [] = newWord
-removeAllYellowLetters yellowLetters newWord (x:restWord) =
-    if x `elem` yellowLetters
-        then removeAllYellowLetters (removeLetterFromList yellowLetters x emptyList) newWord restWord
-        else removeAllYellowLetters yellowLetters (newWord ++ [x]) restWord
 
 sumCoefficientForCurrentWord :: Eq a => [a] -> [[a]] -> Int
 sumCoefficientForCurrentWord potentialOfferWord dict =
@@ -108,12 +102,78 @@ getBestWord dict =
     let listOfPairsWordAndCoefficient = [(word, sumCoefficientForCurrentWord word dict) | word <- dict]
     in return (fst (maximumBy (comparing snd) listOfPairsWordAndCoefficient))
 
-evaluateGuessHelper :: [[Char]] -> Int -> IO ()
-evaluateGuessHelper [] _ = do
+-- validGreenLetters _ [] _ = return True
+-- validGreenLetters newFilters (x:positions) greenFiltersGameState =
+--     if 
+--         then validGreenLetters newFilters positions greenFiltersGameState
+--         else do
+--             putStrLn ( redColor ++ "На зелените позиции, на които вече са разкрити буквите, има други букви!" ++ whiteColor)
+--             return False
+
+
+checkForValidGreenFilters gameState newFilters =
+    let greenLettersNewFilters = [ (ind, letter, c) | (ind, letter, c) <- newFilters, c == Green]
+        greenLettersGameState = [ (ind, ch, c) | (ind, ch, c) <- greenLetters gameState, c == Green]
+    in  (if null greenLettersGameState || 
+            (not (null greenLettersGameState) && 
+                all (`elem` greenLettersNewFilters) greenLettersGameState) 
+        then 
+            return True 
+        else (do
+                putStrLn ( redColor ++ "На зелените позиции, на които вече са разкрити буквите, има други букви" ++ whiteColor)
+                return False))
+
+checkForValidYellowFilters newFilters gameState =
+    let newYellowLetters = [ letter | (_, letter, Yellow) <- newFilters]
+        gameStateYellowLetters = [ letter | (_, letter, _) <- yellowLetters gameState]
+    in (if (length newYellowLetters /= length gameStateYellowLetters)
+        then do
+            putStrLn ( redColor ++ "Отсъстват жълти букви, за които се знае, че присъстват в думата!" ++ whiteColor)
+            return False
+        else if (null newYellowLetters && null gameStateYellowLetters) || (not (null newYellowLetters) && all (`elem` gameStateYellowLetters) newYellowLetters) then return True else (do
+            putStrLn ( redColor ++ "Отсъстват жълти букви, за които се знае, че присъстват в думата!" ++ whiteColor)
+            return False))
+
+checkForGrayLetters newFilters word =
+    let newGrayLetters = [ letter | (_, letter, Gray) <- newFilters]
+    in if all (`notElem` word) newGrayLetters
+        then
+            return True
+        else do
+            putStrLn (redColor ++ "В думата има сиви букви, за които вече се знае, че не се срещат в думата на базата на предишни ходове" ++ whiteColor)
+            return False
+
+hasContradictionWithFilters gameState newFilters word =
+    let indexesGreenLetters = [ ind | (ind, ch, color) <- greenLetters gameState]
+        yellowLettersInWord = [ letter | (_, letter, _) <- yellowLetters gameState]
+    in do
+        putStrLn "printq newFilers"
+        print newFilters
+        putStrLn "printq yellowLetters gameState"
+        print [ letter | (_, letter, _) <- yellowLetters gameState]
+        validGreenFilters <- checkForValidGreenFilters gameState newFilters
+        if validGreenFilters
+            then do
+                validYellowFilters <- checkForValidYellowFilters newFilters gameState
+                print validYellowFilters
+                if validYellowFilters
+                    then do
+                        validGrayFilters <- checkForGrayLetters newFilters (removeAllYellowLetters yellowLettersInWord emptyList (removeGreenLetters indexesGreenLetters word indexToStartCountingFrom emptyList))
+                        if validGrayFilters
+                            then
+                                return True
+                            else
+                                return False
+                else return False
+            else return False
+
+
+
+evaluateGuessHelper [] _ _ = do
     putStrLn ( redColor ++ "Някой от предишните ти отговори е бил лъжа или думата не е в речника!" ++ whiteColor)
     exitSuccess
 
-evaluateGuessHelper dict wordLength = do
+evaluateGuessHelper dict wordLength gameState = do
     bestWord <- getBestWord dict
     putStrLn ("Предложената дума е: " ++ bestWord)
     listOfColors <- getListOfColors bestWord emptyList indexToStartCountingFrom (length bestWord)
@@ -123,10 +183,10 @@ evaluateGuessHelper dict wordLength = do
         then
             putStrLn ( greenColor ++ "Браво, позна думата: " ++ bestWord ++ whiteColor)
         else
-             evaluateGuessHelper (getFilteredDict newDict listOfColors) wordLength
+             evaluateGuessHelper (getFilteredDict newDict listOfColors) wordLength gameState
 
 startGameHelperMode :: FilePath -> IO ()
 startGameHelperMode path = do
     wordLength <- getLengthWords
     dict <- loadDictionary path wordLength
-    evaluateGuessHelper dict wordLength
+    evaluateGuessHelper dict wordLength emptyGameState
