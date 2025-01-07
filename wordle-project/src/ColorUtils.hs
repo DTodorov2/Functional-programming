@@ -1,10 +1,10 @@
 module ColorUtils (greenColor, whiteColor, redColor, colorTheLetters, getColorMatching, 
-                   removeGreenLetters, indexToStartCountingFrom, emptyList, changeColorTo) where
-                    
+                   removeGreenLetters, indexToStartCountingFrom, emptyList, changeColorTo, removeAllYellowLetters) where
+
 import Color ( Color(..) )
 import Data.List ( sortBy )
 import Data.Ord ( comparing )
-import ListUtils ( indexToStartCountingFrom, emptyList, initialValue )
+import ListUtils ( indexToStartCountingFrom, emptyList, initialValue, removeLetterFromList )
 
 -- Color codes for terminal output
 redColor :: String
@@ -39,7 +39,7 @@ getColorMatching guess secretWord
                                 secretWordWithoutGreenLetters 
                                 indexesOfGreenLetters 
                                 emptyList
-                                (findStartIndex indexesOfGreenLetters initialValue indexToStartCountingFrom)
+                                1--(findStartIndex indexesOfGreenLetters initialValue indexToStartCountingFrom)
             indexesOfYellowLetters = [ind | (ind, _, _) <- yellowLetters]
             grayLetters = findGrayLetters guess (indexesOfYellowLetters ++ indexesOfGreenLetters)
         in (greenLetters ++ yellowLetters ++ grayLetters)
@@ -54,12 +54,25 @@ removeGreenLetters listOfIndexesOfGreenLetters (x:restWord) currentInd newWord =
         then removeGreenLetters listOfIndexesOfGreenLetters restWord (currentInd + 1) newWord
         else removeGreenLetters listOfIndexesOfGreenLetters restWord (currentInd + 1) (newWord ++ [x])
 
+removeAllYellowLetters :: Eq a => [a] -> [a] -> [a] -> [a]
+removeAllYellowLetters [] newWord restWord = newWord ++ restWord
+removeAllYellowLetters _ newWord [] = newWord
+removeAllYellowLetters yellowLetters newWord (x:restWord) =
+    if x `elem` yellowLetters
+        then removeAllYellowLetters (removeLetterFromList yellowLetters x emptyList) newWord restWord
+        else removeAllYellowLetters yellowLetters (newWord ++ [x]) restWord
+
 -- Finds green letters that match in both words
 findGreenLetters :: (Num a, Enum a, Eq b) => [(b, b)] -> [(a, b, Color)]
 findGreenLetters [] = []
 findGreenLetters pairs = 
      [(i, letterOfferWord, Green) | (i, (letterOfferWord, letterSecretWord)) <- zip [1..] pairs, 
                                                                                 letterOfferWord == letterSecretWord]
+
+nextIndex usedPositions currInd =
+    if currInd + 1 `elem` usedPositions
+        then nextIndex usedPositions (currInd + 1)
+        else currInd + 1
 
 -- -- v nachaloto lista ot yellow shte e [], pairs = zip [1..] offerWord, index pochva ot 1
 -- Function to find yellow letters that are in the offer word but not in the same position in the secret word
@@ -74,18 +87,18 @@ findYellowLetters (x:remainingGuess) secretWordExcludingGreen usedPositions yell
                 (removeOccuranceFromSecretWord secretWordExcludingGreen x)
                 (usedPositions ++ [index]) 
                 ((index, x, Yellow) : yellowLetters) 
-                (index + 1)
+                (nextIndex usedPositions index)
         else findYellowLetters 
                 remainingGuess 
                 secretWordExcludingGreen 
                 usedPositions 
                 yellowLetters 
-                (index + 1)
+                (nextIndex usedPositions index)
 
 -- Checks if the letter can be yellow
 theLetterCanBeYellow :: (Foldable t1, Foldable t2, Eq a1, Eq a2) => a2 -> a1 -> t1 a1 -> t2 a2 -> Bool
 theLetterCanBeYellow letter ind usedPositions secretWordExcludingGreen = 
-    (ind `notElem` usedPositions) && (letter `elem` secretWordExcludingGreen)
+    letter `elem` secretWordExcludingGreen
 
 -- Helper function to remove a letter from the secret word
 removeOccuranceFromSecretWord :: Eq t => [t] -> t -> [t]
@@ -98,14 +111,6 @@ removeOccuranceFromSecretWord (x:xs) letter =
 findGrayLetters :: (Num a, Enum a, Foldable t, Eq a) => [b] -> t a -> [(a, b, Color)]
 findGrayLetters offerWord markedPositions =
     [(i, letter, Gray) | (i, letter) <- zip [1..] offerWord, i `notElem` markedPositions]
-
---start винаги е 0
-findStartIndex :: (Eq t1, Num t1, Num t2) => [t1] -> t1 -> t2 -> t2
-findStartIndex [] _ startInd = startInd
-findStartIndex (x:restListOfIndexesOfGreenLetters) start startInd =
-    if (start + 1) /= x
-        then startInd
-        else findStartIndex restListOfIndexesOfGreenLetters (start + 1) (startInd + 1)
 
 colorTheLetters :: [Char] -> [Char] -> [Char]
 colorTheLetters guess actualWord = 
