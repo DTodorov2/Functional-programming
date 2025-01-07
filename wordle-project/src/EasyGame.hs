@@ -1,14 +1,23 @@
 module EasyGame ( startGameEasyMode ) where
 
-import GameState ( GameState, emptyGameState, updateGameState, getAllFilters ) 
+import GameState ( GameState (..), emptyGameState, updateGameState, getAllFilters )
 import System.IO ( hFlush, stdout )
-import HelperMode ( getValidWords )
+import HelperMode ( getValidWords, hasContradictionWithFilters )
 import System.Exit ( exitSuccess )
-import ColorUtils ( greenColor, whiteColor, redColor, colorTheLetters )
+import ColorUtils
+    ( greenColor,
+      whiteColor,
+      redColor,
+      colorTheLetters,
+      removeGreenLetters,
+      removeAllYellowLetters, getColorMatching )
 import IOOperations (loadDictionary)
+import Color (Color(..))
+import Data.List (intersect)
+import ListUtils (indexToStartCountingFrom, emptyList)
 
 checkGuessIsNotInDictionary :: Eq a => [a] -> [[a]] -> IO Bool
-checkGuessIsNotInDictionary guess dictionary = 
+checkGuessIsNotInDictionary guess dictionary =
     if guess `notElem` dictionary
         then do
             putStrLn ( redColor ++ "Думата, която предлагаш, я няма в речника!" ++ whiteColor)
@@ -41,25 +50,32 @@ askForConfirmation word = do
                 putStrLn ( redColor ++ "Отговорът трябва да е y или n" ++ whiteColor )
                 askForConfirmation word
 
-confirmWordUsage :: [Char] -> GameState -> [[Char]] -> IO Bool
-confirmWordUsage guess gameState dict = do
-    notInDict <- checkGuessIsNotInDictionary guess dict 
+confirmWordUsage guess gameState dict secretWord = do
+    notInDict <- checkGuessIsNotInDictionary guess dict
     if notInDict
-        then 
+        then
             askForConfirmation guess
         else do
-            let validWords = getValidWords [guess] (getAllFilters gameState)
-            if null validWords
+            let colorPattern = getColorMatching guess secretWord
+            hasContradiction <- hasContradictionWithFilters gameState colorPattern guess
+            if not hasContradiction
                 then do
-                    putStrLn (redColor ++ "Даваш дума, която противоречи с предишни отговори!" ++ whiteColor)
                     askForConfirmation guess
-                else return True
+                else do
+                    let validWords = getValidWords [guess] (getAllFilters gameState)
+                    if null validWords
+                        then do
+                        putStrLn (redColor ++ "Даваш дума, която противоречи с предишни отговори!" ++ whiteColor)
+                        askForConfirmation guess
+                    else return True
+
+
 
 evaluateGuessEasyMode :: String -> Int -> GameState -> [[Char]] -> IO b
 evaluateGuessEasyMode _ _ _ [] = do
     putStrLn "Речникът не трябва да е празен!"
     exitSuccess
-    
+
 evaluateGuessEasyMode secretWord secretWordLength gameState dict = do
     putStr "Моля, въведете опит за познаване на думата: "
     hFlush stdout
@@ -69,7 +85,8 @@ evaluateGuessEasyMode secretWord secretWordLength gameState dict = do
             putStrLn ( greenColor ++ "Браво! Позна думата " ++ secretWord ++ whiteColor )
             exitSuccess
         else do
-            continue <- confirmWordUsage guess gameState dict
+            print (getAllFilters gameState)
+            continue <- confirmWordUsage guess gameState dict secretWord
             if not continue
                 then evaluateGuessEasyMode secretWord secretWordLength gameState dict
                 else validateGuessLength guess secretWordLength secretWord gameState dict
