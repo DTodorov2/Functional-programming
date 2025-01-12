@@ -1,64 +1,77 @@
 module ExpertGame where
 
 import System.IO ( hFlush, stdout )
-import GameState ( emptyGameState, updateGameState, GameState (greenLetters, yellowLetters, grayLetters), getFiltersCount ) 
+import GameState 
+    ( emptyGameState, 
+      updateGameState, 
+      GameState (greenLetters, yellowLetters, grayLetters), 
+      getFiltersCount ) 
 import System.Exit ( exitSuccess )
 import Color ( Color(Green, Yellow, Gray) )
-import ColorUtils ( indexToStartCountingFrom, emptyList, greenColor, whiteColor, redColor, colorTheLetters, changeColorTo )
-import ListUtils ( makeMapForLetterAndCountInWord, initialValue )
+import ColorUtils 
+    ( greenColor, 
+      whiteColor, 
+      redColor, 
+      colorTheLetters, 
+      changeColorTo,
+      getColorMatching )
+import ListUtils ( makeMapForLetterAndCountInWord, indexToStartCountingFrom, emptyList, getCountOfCurrentLetter )
 
-startGameExpertMode actualWord = evaluateGuessExpertGame actualWord (length actualWord) emptyGameState indexToStartCountingFrom
+startGameExpertMode :: String -> IO b
+startGameExpertMode secretWord = evaluateGuessExpertGame secretWord (length secretWord) 
+                                                emptyGameState indexToStartCountingFrom
 
-evaluateGuessExpertGame actualWord wordLength gameState usedLie = do
+evaluateGuessExpertGame :: (Eq a, Num a) => String -> Int -> GameState -> a -> IO b
+evaluateGuessExpertGame secretWord wordLength gameState usedLie = do
     putStr "Въведи опит за познаване на думата: "
     hFlush stdout
     guess <- getLine
     if length guess /= wordLength
         then do
             putStrLn ( redColor ++ "Думата трябва да бъде с дължина " ++ show wordLength ++ whiteColor)
-            evaluateGuessExpertGame actualWord wordLength gameState usedLie
+            evaluateGuessExpertGame secretWord wordLength gameState usedLie
             -- TO DO: To clear the screen after a difference in the length
-            else if guess == actualWord
+            else if guess == secretWord
                 then do
-                    putStrLn (greenColor ++ "Браво! Позна думата " ++ actualWord ++ whiteColor)
+                    putStrLn (greenColor ++ "Браво! Позна думата " ++ secretWord ++ whiteColor)
                     exitSuccess
                 else do
                     -- shouldLie <- randomRIO (0, 1 :: Int)
-                    putStrLn (colorTheLettersExpertMode guess actualWord gameState usedLie)
+                    putStrLn (colorTheLettersExpertMode guess secretWord gameState usedLie)
                     evaluateGuessExpertGame 
-                        actualWord 
+                        secretWord 
                         wordLength 
-                        (if usedLie /= 2 then updateGameState guess actualWord gameState else gameState) 
+                        (if usedLie /= 2 then updateGameState guess secretWord gameState else gameState) 
                         (usedLie + 1)
 
-
-colorTheLettersExpertMode guess actualWord gameState usedLie =
+-- Colors the letters depending on the random generator
+colorTheLettersExpertMode :: (Eq a, Num a) => [Char] -> [Char] -> GameState -> a -> [Char]
+colorTheLettersExpertMode guess secretWord gameState usedLie =
     -- To be careful with the conditions in the if
     if usedLie /= 2
-        then colorTheLetters guess actualWord
+        then colorTheLetters guess secretWord
         else colorTheLettersFalsly 
                 guess 
                 gameState
-                (makeMapForLetterAndCountInWord actualWord) 
+                (makeMapForLetterAndCountInWord secretWord) 
                 emptyList 
                 indexToStartCountingFrom 
-                [ind | (ind, _, Green) <- greenLetters gameState]
-                (getFiltersCount gameState)
-                (length actualWord)
+                --[ind | (ind, _, Green) <- greenLetters gameState]
+                0--(getFiltersCount gameState)
+                (length secretWord)
+                (getColorMatching guess secretWord)
+                False
 
--- namalqm broikata na sreshtaniqta na bukvite v secretDumata
+-- Reduce the count of occurances of the letters in the secret word
+reduceCountOfLetterInMap :: (Ord b, Num b, Eq t) => t -> [(t, b)] -> [(t, b)]
 reduceCountOfLetterInMap _ [] = []
 reduceCountOfLetterInMap targetLetter ((letter, count):restMap)
     | letter == targetLetter && count > 0   = (letter, count - 1) : restMap
     | otherwise                             = (letter, count) : reduceCountOfLetterInMap targetLetter restMap
 
 
--- vzemam broikata na bukvata ot map-a
-getCountOfCurrentLetter _ [] = 0
-getCountOfCurrentLetter targetLetter ((letter, count):restMapCountForSecretWord)
-    | targetLetter == letter    = count
-    | otherwise                 = getCountOfCurrentLetter targetLetter restMapCountForSecretWord
-
+-- Checks if a letter can be green
+isGreen :: Char -> Int -> GameState -> Bool
 isGreen x currentInd gameState =
     not (null [(ind, letter) | (ind, letter, Green) <- greenLetters gameState, ind == currentInd, letter == x])
 
@@ -69,48 +82,54 @@ isGreen x currentInd gameState =
 --     (currentInd `elem` [ ind | (ind, letter) <- listOfYellowFilters, letter == x] || 
 --       x `notElem` ([letter | (ind, letter, Gray) <- grayLetters gameState]))
 
+-- Checks if a letter can be gray
+isGray :: Char -> GameState -> Bool
 isGray x gameState = x `elem` [ letter | (_, letter, Gray) <- grayLetters gameState]
 
 -- може да си направя фунцкия determineColor и в нея да са ми проверките, а тук просто да минавам през буквте и да ъпдейтвам мапа
 colorTheLettersFalsly [] _ _ coloredWord _ _ _ _ = coloredWord
-colorTheLettersFalsly (x:restOfferWord) gameState mapCountForSecretWord coloredWord currentInd indexesWithGreenLetters countFilterLetters lengthWord
+colorTheLettersFalsly (x:restOfferWord) gameState mapCountForSecretWord coloredWord currentInd 
+                                        countFilterLetters lengthWord colorPattern
   | isGreen x currentInd gameState     = colorTheLettersFalsly 
-                                            restOfferWord 
-                                            gameState 
-                                            (reduceCountOfLetterInMap x mapCountForSecretWord) 
-                                            (coloredWord ++ changeColorTo Green x) 
-                                            (currentInd + 1) 
-                                            indexesWithGreenLetters 
-                                            countFilterLetters
-                                            lengthWord
+                                                    restOfferWord 
+                                                    gameState 
+                                                    (reduceCountOfLetterInMap x mapCountForSecretWord) 
+                                                    (coloredWord ++ changeColorTo Green x) 
+                                                    (currentInd + 1)  
+                                                    (countFilterLetters + 1)
+                                                    lengthWord
+                                                    colorPattern
   | getCountOfCurrentLetter x mapCountForSecretWord == 0    = processLetterWithCountZero x 
                                                                 gameState restOfferWord 
                                                                 mapCountForSecretWord coloredWord 
-                                                                currentInd indexesWithGreenLetters
+                                                                currentInd
                                                                 countFilterLetters
                                                                 lengthWord
+                                                                colorPattern
   | otherwise = let yellowFilters = [ (ind, letter) | (ind, letter, Yellow) <- yellowLetters gameState]
                 in processOtherLetters x yellowFilters currentInd restOfferWord gameState 
-                    mapCountForSecretWord coloredWord indexesWithGreenLetters countFilterLetters lengthWord
+                    mapCountForSecretWord coloredWord countFilterLetters lengthWord colorPattern
 
-processOtherLetters letter yellowFilters currentInd restOfferWord gameState mapCountForSecretWord coloredWord indexesWithGreenLetters countFilterLetters lengthWord
+processOtherLetters letter yellowFilters currentInd restOfferWord gameState mapCountForSecretWord 
+                    coloredWord countFilterLetters lengthWord colorPattern
     | letter `elem` map snd yellowFilters   = processYellowLetter yellowFilters letter currentInd 
                                                                   restOfferWord gameState mapCountForSecretWord 
-                                                                  coloredWord indexesWithGreenLetters countFilterLetters lengthWord
+                                                                  coloredWord countFilterLetters lengthWord colorPattern
     | otherwise = processGrayLetter letter mapCountForSecretWord 
-                  coloredWord currentInd indexesWithGreenLetters 
-                  restOfferWord gameState countFilterLetters lengthWord
+                  coloredWord currentInd 
+                  restOfferWord gameState countFilterLetters lengthWord colorPattern
 
-processGrayLetter letter mapCountForSecretWord coloredWord currentInd indexesWithGreenLetters restOfferWord gameState countFilterLetters lengthWord
+processGrayLetter letter mapCountForSecretWord coloredWord currentInd 
+                  restOfferWord gameState countFilterLetters lengthWord colorPattern
     | letter `elem` [ letter | (ind, letter, Gray) <- grayLetters gameState] = colorTheLettersFalsly 
                                                                                 restOfferWord 
                                                                                 gameState 
                                                                                 (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                                                                                 (coloredWord ++ changeColorTo Gray letter) 
                                                                                 (currentInd + 1) 
-                                                                                indexesWithGreenLetters
                                                                                 countFilterLetters
                                                                                 lengthWord
+                                                                                colorPattern
     | otherwise = if countFilterLetters < lengthWord - 1
                     then 
                         colorTheLettersFalsly 
@@ -119,9 +138,9 @@ processGrayLetter letter mapCountForSecretWord coloredWord currentInd indexesWit
                         (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                         (coloredWord ++ changeColorTo Yellow letter) 
                         (currentInd + 1) 
-                        indexesWithGreenLetters
                         (countFilterLetters + 1)
                         lengthWord
+                        colorPattern
                     else 
                         colorTheLettersFalsly 
                         restOfferWord 
@@ -129,40 +148,57 @@ processGrayLetter letter mapCountForSecretWord coloredWord currentInd indexesWit
                         (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                         (coloredWord ++ changeColorTo Gray letter) 
                         (currentInd + 1) 
-                        indexesWithGreenLetters
                         countFilterLetters
                         lengthWord
+                        colorPattern
 
-processYellowLetter yellowFilters letter currentInd restOfferWord gameState mapCountForSecretWord coloredWord indexesWithGreenLetters countFilterLetters lengthWord
-    | currentInd `elem` [ind | (ind, x) <- yellowFilters] = colorTheLettersFalsly 
+letterIsOriginallyGreen letter currentInd colorPattern = 
+    (currentInd, letter, Green) `elem` colorPattern
+
+processYellowLetter yellowFilters letter currentInd restOfferWord gameState mapCountForSecretWord coloredWord 
+                    countFilterLetters lengthWord colorPattern
+                    --[ind | (ind, x) <- yellowFilters] -> tva beshe vmsto yellowFilters
+    |(currentInd, letter) `elem` yellowFilters  = colorTheLettersFalsly 
                                                                 restOfferWord 
                                                                 gameState 
                                                                 (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                                                                 (coloredWord ++ changeColorTo Yellow letter) 
                                                                 (currentInd + 1) 
-                                                                indexesWithGreenLetters
                                                                 (countFilterLetters + 1)
                                                                 lengthWord
-    | otherwise = colorTheLettersFalsly 
-                    restOfferWord 
-                    gameState 
-                    (reduceCountOfLetterInMap letter mapCountForSecretWord) 
-                    (coloredWord ++ changeColorTo Green letter) 
-                    (currentInd + 1) 
-                    indexesWithGreenLetters
-                    (countFilterLetters + 1) 
-                    lengthWord                         
+                                                                colorPattern
+    | otherwise =   if letterIsOriginallyGreen letter currentInd colorPattern
+                        then colorTheLettersFalsly 
+                                restOfferWord 
+                                gameState 
+                                (reduceCountOfLetterInMap letter mapCountForSecretWord) 
+                                (coloredWord ++ changeColorTo Yellow letter) 
+                                (currentInd + 1) 
+                                (countFilterLetters + 1) 
+                                lengthWord 
+                                colorPattern  
+                        else 
+                            colorTheLettersFalsly 
+                                restOfferWord 
+                                gameState 
+                                (reduceCountOfLetterInMap letter mapCountForSecretWord) 
+                                (coloredWord ++ changeColorTo Green letter) 
+                                (currentInd + 1) 
+                                (countFilterLetters + 1) 
+                                lengthWord  
+                                colorPattern    
 
-processLetterWithCountZero letter gameState restOfferWord mapCountForSecretWord coloredWord currentInd indexesWithGreenLetters countFilterLetters lengthWord
+processLetterWithCountZero letter gameState restOfferWord mapCountForSecretWord coloredWord currentInd 
+                           countFilterLetters lengthWord colorPattern
     | isGray letter gameState    = colorTheLettersFalsly 
                                         restOfferWord 
                                         gameState 
                                         (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                                         (coloredWord ++ changeColorTo Gray letter) 
                                         (currentInd + 1) 
-                                        indexesWithGreenLetters
                                         countFilterLetters
                                         lengthWord
+                                        colorPattern
 
     | otherwise = if countFilterLetters < lengthWord - 1
                     then 
@@ -172,9 +208,9 @@ processLetterWithCountZero letter gameState restOfferWord mapCountForSecretWord 
                         (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                         (coloredWord ++ changeColorTo Yellow letter) 
                         (currentInd + 1) 
-                        indexesWithGreenLetters
                         (countFilterLetters + 1)
                         lengthWord
+                        colorPattern
                     else 
                         colorTheLettersFalsly 
                         restOfferWord 
@@ -182,6 +218,6 @@ processLetterWithCountZero letter gameState restOfferWord mapCountForSecretWord 
                         (reduceCountOfLetterInMap letter mapCountForSecretWord) 
                         (coloredWord ++ changeColorTo Gray letter) 
                         (currentInd + 1) 
-                        indexesWithGreenLetters
                         countFilterLetters
                         lengthWord
+                        colorPattern
